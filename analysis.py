@@ -15,7 +15,7 @@ con = duckdb.connect(str(HERE / "kalshi.duckdb"), read_only=True)
 snap = con.sql("""
 WITH horizons AS (SELECT * FROM (VALUES (1), (7), (30)) AS t(days)),
 s AS (
-    SELECT m.ticker, m.event_type, h.days,
+    SELECT m.ticker, m.event_ticker, m.event_type, h.days,
            CASE WHEN m.result THEN 1 ELSE 0 END AS outcome,
            p.date, p.yes_bid, p.yes_ask, p.last_price
     FROM markets m
@@ -39,19 +39,37 @@ snap["sq_err"] = (snap["price"] - snap["outcome"]) ** 2
 bins = np.linspace(0, 1, 11)
 labels = [f"{i*10}-{i*10+10}%" for i in range(10)]
 snap["bucket"] = pd.cut(snap["price"], bins, labels=labels, include_lowest=True)
+snap = snap.sort_values(["event_type", "ticker", "days"]).reset_index(drop=True)
 snap.to_csv(HERE / "snapshots.csv", index=False)
 
-def calibration(df):
-    return (df.groupby("bucket", observed=True)
-              .agg(n=("outcome", "size"), avg_price=("price", "mean"), hit_rate=("outcome", "mean"))
-              .reset_index())
+def bootstrap_ci(df, n_boot=1000, seed=0):
+    """95% interval for a hit rate. Strikes on the same release move together, so resample
+    whole releases (event_ticker) with replacement n_boot times, not single contracts."""
+    r = df.groupby("event_ticker")["outcome"].agg(["sum", "size"])
+    idx = np.random.default_rng(seed).integers(0, len(r), size=(n_boot, len(r)))
+    rates = r["sum"].values[idx].sum(axis=1) / r["size"].values[idx].sum(axis=1)
+    return np.percentile(rates, [2.5, 97.5])
 
-def curve(groups, title, file):
+def calibration(df):
+    g = df.groupby("bucket", observed=True)
+    c = (g.agg(n=("outcome", "size"), avg_price=("price", "mean"), hit_rate=("outcome", "mean"))
+          .reset_index())
+    c[["ci_low", "ci_high"]] = [bootstrap_ci(b) for _, b in g]
+    # The gap is significant when the average price falls outside the hit rate's 95% interval
+    c["significant"] = (c["avg_price"] < c["ci_low"]) | (c["avg_price"] > c["ci_high"])
+    return c
+
+def curve(groups, title, file, error_bars=False):
     fig, ax = plt.subplots(figsize=(7, 7))
     ax.plot([0, 1], [0, 1], "--", color="gray", label="Perfect calibration")
     for name, g in groups:
         c = calibration(g)
-        ax.plot(c["avg_price"], c["hit_rate"], "o-", label=name)
+        if error_bars:
+            yerr = [c["hit_rate"] - c["ci_low"], c["ci_high"] - c["hit_rate"]]
+            ax.errorbar(c["avg_price"], c["hit_rate"], yerr=yerr, fmt="o-", capsize=3,
+                        elinewidth=1, label=name)
+        else:
+            ax.plot(c["avg_price"], c["hit_rate"], "o-", label=name)
     ax.set_xlabel("Market price (implied probability)")
     ax.set_ylabel("How often it actually happened")
     ax.set_title(title)
@@ -63,7 +81,8 @@ print("Snapshots per horizon:", snap.groupby("days").size().to_dict())
 
 # Chart 1: calibration curve at each horizon
 curve([(f"{d} day(s) before close", g) for d, g in snap.groupby("days")],
-      "Kalshi economics markets: calibration by time before close", "calibration_by_horizon.png")
+      "Kalshi economics markets: calibration by time before close\n(bars: 95% interval, resampling whole releases)",
+      "calibration_by_horizon.png", error_bars=True)
 
 # Chart 2: calibration by event type, 1 day before close
 one = snap[snap["days"] == 1]
@@ -92,6 +111,13 @@ plt.close(fig)
 c1 = calibration(one)
 print("\nCalibration, 1 day before close:")
 print(c1.round(3).to_string(index=False))
+
+print("\nBuckets where the price-vs-hit-rate gap is statistically significant (95% release-level bootstrap):")
+for d, g in snap.groupby("days"):
+    sig = calibration(g).query("significant")
+    print(f"  {d} day(s) before close: " + (", ".join(
+        f"{r.bucket} (price {r.avg_price:.0%}, happened {r.hit_rate:.0%}, "
+        f"CI {r.ci_low:.0%}-{r.ci_high:.0%}, n={r.n})" for r in sig.itertuples()) or "none"))
 
 print("\nBrier score by event type (0 = perfect, 0.25 = coin flip):")
 print(brier.round(3))

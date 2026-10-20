@@ -55,15 +55,25 @@ def load():
     return pd.read_csv(Path(__file__).parent / "snapshots.csv")
 
 
+def bootstrap_ci(df, n_boot=1000, seed=0):
+    # Resample whole releases, since strikes on the same release move together
+    r = df.groupby("event_ticker")["outcome"].agg(["sum", "size"])
+    idx = np.random.default_rng(seed).integers(0, len(r), size=(n_boot, len(r)))
+    rates = r["sum"].values[idx].sum(axis=1) / r["size"].values[idx].sum(axis=1)
+    return np.percentile(rates, [2.5, 97.5])
+
+
 def calibration(df):
     bins = np.linspace(0, 1, 11)
     labels = [f"{i*10}–{i*10+10}%" for i in range(10)]
     b = pd.cut(df["price"], bins, labels=labels, include_lowest=True)
-    c = (df.assign(bucket=b).groupby("bucket", observed=True)
-           .agg(n=("outcome", "size"), price=("price", "mean"), hit=("outcome", "mean"))
-           .reset_index())
+    g = df.assign(bucket=b).groupby("bucket", observed=True)
+    c = (g.agg(n=("outcome", "size"), price=("price", "mean"), hit=("outcome", "mean"))
+          .reset_index())
+    c[["lo", "hi"]] = [bootstrap_ci(x) for _, x in g]
     c["bucket"] = c["bucket"].astype(str)
     c["gap"] = (c["hit"] - c["price"]) * 100
+    c["sig"] = (c["price"] < c["lo"]) | (c["price"] > c["hi"])
     return c
 
 
@@ -136,14 +146,17 @@ with right:
 
 st.markdown('<div style="height:3.5rem"></div>', unsafe_allow_html=True)
 st.markdown('<h2 class="sec">Where the price was wrong</h2>'
-            '<p class="sub">Each row groups contracts by their price. Red marks a gap of 8 points or '
-            'more between what the market said and what happened.</p>', unsafe_allow_html=True)
+            '<p class="sub">Each row groups contracts by their price. The 95% range comes from '
+            'resampling whole data releases 1,000 times. Red marks buckets where the average price '
+            'falls outside that range, so the gap is unlikely to be luck.</p>', unsafe_allow_html=True)
 rows = "".join(
     f"<tr><td>{r.bucket}</td><td>{r.n:,}</td><td>{r.price:.1%}</td><td>{r.hit:.1%}</td>"
-    f"<td class='{'miss' if abs(r.gap) >= 8 else ''}'>{r.gap:+.1f}</td></tr>"
+    f"<td>{r.lo:.1%}–{r.hi:.1%}</td>"
+    f"<td class='{'miss' if r.sig else ''}'>{r.gap:+.1f}</td></tr>"
     for r in cal.itertuples())
 st.markdown(f"<table class='t'><tr><th>Price bucket</th><th>Contracts</th><th>Average price</th>"
-            f"<th>Happened</th><th>Gap (pts)</th></tr>{rows}</table>", unsafe_allow_html=True)
+            f"<th>Happened</th><th>95% range</th><th>Gap (pts)</th></tr>{rows}</table>",
+            unsafe_allow_html=True)
 
 st.markdown('<div style="height:4rem"></div><h2 class="sec">By event type</h2>'
             '<p class="sub">Fed decisions are signaled in advance, so their prices sit almost on the '

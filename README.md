@@ -34,13 +34,23 @@ Brier score (0 = perfect, 0.25 = coin flip). Lower is better.
 
 ## Where the market missed
 
-| Price bucket | Contracts | Avg price | Actually happened |
-|---|---|---|---|
-| 10–20% | 78 | 15% | 24% |
-| 70–80% | 63 | 75% | 59% |
+Each bucket's 95% interval comes from a bootstrap that resamples whole data releases 1,000 times.
+It resamples releases instead of single contracts because strikes on the same release move together.
 
-Low-probability contracts won more often than priced, and 70–80% contracts won less often.
-Bucket sizes are small, so some of this may be noise. Confidence intervals are a planned next step.
+| Price bucket | Contracts | Avg price | Actually happened | 95% interval |
+|---|---|---|---|---|
+| 10–20% | 78 | 15% | 24% | 14.5–34.9% |
+| 70–80% | 63 | 75% | 59% | 44.8–73.5% |
+
+- **70–80% is the one real miss, and only barely.** One day before release, these contracts were
+  priced at 75% but happened 59% of the time. The interval excludes the price by about one point.
+  Jobs reports drive most of it: 33 of the 63 contracts, with a 55% hit rate. The miss doesn't
+  appear at other horizons: the same bucket hit 71% at 7 days out and 80% at 30 days out.
+- **10–20% is not significant.** Its interval includes the 15% average price.
+- **Some flags will happen by chance.** 30 buckets were tested (10 buckets × 3 horizons), so at 95%
+  confidence about 1.5 would be flagged by chance alone. The 7-day 0–10% and 90–100% flags are
+  1–2 point gaps where nearly every contract settled the same way, and they shouldn't be read as
+  real mispricing.
 
 ## Method
 
@@ -52,6 +62,8 @@ Bucket sizes are small, so some of this may be noise. Confidence intervals are a
 3. **Calibration:** contracts grouped into 10-point price buckets; each bucket's average price
    compared with the share that settled yes.
 4. **Brier score:** mean of (price − outcome)², overall and by event type.
+5. **Confidence intervals:** 95% bootstrap interval on each bucket's hit rate, resampling whole
+   releases (`event_ticker`) 1,000 times. A gap is significant when the average price falls outside it.
 
 **Caveats:** 58% of contracts were priced below 10% or above 90% the day before, and those easy
 calls make the overall Brier score look better. Jobs and Fed data start in 2023.

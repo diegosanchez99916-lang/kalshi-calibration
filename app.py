@@ -51,8 +51,8 @@ table.t td.miss {{ color: {RED}; font-weight: 600; }}
 
 
 @st.cache_data
-def load():
-    return pd.read_csv(Path(__file__).parent / "snapshots.csv")
+def load(name="snapshots.csv"):
+    return pd.read_csv(Path(__file__).parent / name)
 
 
 def bootstrap_ci(df, n_boot=1000, seed=0):
@@ -180,6 +180,68 @@ rows = "".join(f"<tr><td>{t}</td>" + "".join(f"<td>{tbl.loc[t, d]:.3f}</td>" for
                + "</tr>" for t in tbl.index)
 st.markdown(f"<table class='t'><tr><th>Event type</th><th>30 days out</th><th>7 days out</th>"
             f"<th>1 day out</th></tr>{rows}</table>", unsafe_allow_html=True)
+
+yearly, trend = load("yearly.csv"), load("yearly_trend.csv").set_index(["metric", "event_type"])
+tr = lambda m, t: trend.loc[(m, t)]
+fmt_slope = lambda r: f"{r.slope:+.3f} a year (95% range {r.slope_lo:+.3f} to {r.slope_hi:+.3f})"
+st.markdown(f"""<div style="height:3rem"></div><h2 class="sec">Is Kalshi getting more accurate?</h2>
+<p class="sub">Prices 1 day before release, grouped by the year of the release. Two things change over
+time besides skill. Fed and Jobs markets start in 2023, and Fed is far easier to call, so every trend
+here compares years within the same event type. And the share of close calls changes: a perfectly
+priced 50% contract still scores 0.25, so the second view subtracts the Brier score the prices
+themselves predicted. Zero there means prices were exactly as good as they claimed.</p>
+<p class="lede" style="font-size:1.08rem;margin-bottom:1.6rem"><b>No overall change.</b> Within each
+event type, the Brier score moved {fmt_slope(tr("brier", "All"))}, which is within noise.
+<b>CPI</b> scores improved ({tr("brier", "CPI").slope:+.3f} a year), but mostly because fewer CPI
+contracts were close calls. After allowing for difficulty, its trend is {tr("excess", "CPI").slope:+.3f}
+a year, within noise. <b>Jobs</b> got worse ({tr("brier", "Jobs").slope:+.3f} a year). About half of
+that is harder questions (84% of 2026 jobs contracts were close calls), and the rest is a borderline
+decline in pricing, {fmt_slope(tr("excess", "Jobs"))}, driven by 2026. Ten trends were tested here, so
+one borderline result could be chance. 2021 covers only July to December, with 12 contracts.</p>
+""", unsafe_allow_html=True)
+
+view = st.segmented_control("Measure", ["Brier score", "Pricing error after difficulty"],
+                            default="Brier score") or "Brier score"
+m = "brier" if view == "Brier score" else "excess"
+# Cells with under 3 releases are too thin to resample into a meaningful range
+cells = yearly[(yearly["event_type"] != "All") & (yearly["releases"] >= 3)].copy()
+cells["x"] = cells["year"] + cells["event_type"].map({t: (k - 1.5) * 0.08 for k, t in enumerate(types)})
+style = dict(grid=False, domainColor=LINE, tickColor=LINE, labelColor=MUTED, titleColor=MUTED,
+             labelFont=VFONT, titleFont=VFONT, titleFontWeight=400)
+x = alt.X("x:Q", scale=alt.Scale(domain=[2020.7, 2026.3]), title=None,
+          axis=alt.Axis(format="d", values=sorted(cells["year"].unique()), **style))
+y = alt.Y(f"{m}:Q", title=view + (" (lower is better)" if m == "brier" else " (0 = as claimed)"),
+          axis=alt.Axis(**style))
+color = alt.Color("event_type:N", scale=alt.Scale(domain=list(TYPE_COLORS), range=list(TYPE_COLORS.values())),
+                  legend=alt.Legend(title=None, orient="top", labelFont=VFONT, labelColor=MUTED))
+tip = [alt.Tooltip("event_type:N", title="Event type"), alt.Tooltip("year:O", title="Year"),
+       alt.Tooltip("contracts:Q", title="Contracts"), alt.Tooltip("releases:Q", title="Releases"),
+       alt.Tooltip(f"{m}:Q", title=view, format=".3f"),
+       alt.Tooltip(f"{m}_lo:Q", title="95% low", format=".3f"), alt.Tooltip(f"{m}_hi:Q", title="95% high", format=".3f")]
+base = alt.Chart(cells)
+layers = [base.mark_rule(strokeWidth=1.4, opacity=.55).encode(x=x, y=alt.Y(f"{m}_lo:Q"), y2=f"{m}_hi:Q", color=color),
+          base.mark_line(strokeWidth=2).encode(x=x, y=y, color=color),
+          base.mark_circle(size=70, opacity=1).encode(x=x, y=y, color=color, tooltip=tip)]
+if m == "excess":
+    layers.insert(0, alt.Chart(pd.DataFrame({"z": [0]})).mark_rule(strokeDash=[4, 4], color=MUTED).encode(y="z:Q"))
+st.altair_chart(alt.layer(*layers).properties(height=380, background="transparent")
+                .configure_view(stroke=None).configure(font=VFONT), use_container_width=True)
+
+rng_ = lambda r, k, f: f"{r[k]:{f}}<span style='color:{MUTED}'> ({r[k + '_lo']:{f}} to {r[k + '_hi']:{f}})</span>"
+rows = "".join(
+    f"<tr><td>{r.year}{' (Jul–Dec)' if r.year == 2021 else ''}</td><td>{r.contracts:,}</td>"
+    f"<td>{r.releases}</td><td>{r.close_calls:.0%}</td><td>{rng_(r._asdict(), 'brier', '.3f')}</td>"
+    f"<td>{rng_(r._asdict(), 'adj_brier', '+.3f')}</td><td>{rng_(r._asdict(), 'adj_excess', '+.3f')}</td>"
+    f"<td>{rng_(r._asdict(), 'gap', '.1f')}</td></tr>"
+    for r in yearly[yearly["event_type"] == "All"].itertuples())
+st.markdown('<p class="sub" style="margin-top:1.4rem">All event types together. The adjusted columns '
+            'compare each contract with its own event type\'s usual level, so a change in the mix of '
+            'event types does not show up as a trend. Close calls are contracts priced 10–90%. The '
+            'calibration gap is pushed up by noise in small samples, which is why 2021 looks so bad, '
+            'so its range is mostly below the estimate.</p>', unsafe_allow_html=True)
+st.markdown(f"<table class='t'><tr><th>Year</th><th>Contracts</th><th>Releases</th><th>Close calls</th>"
+            f"<th>Brier</th><th>Brier vs. usual for type</th><th>Pricing error vs. usual</th>"
+            f"<th>Calibration gap (pts)</th></tr>{rows}</table>", unsafe_allow_html=True)
 
 st.markdown("""
 <div class="foot">Method: every settled Kalshi market in the CPI, jobs, Fed decision and GDP series,

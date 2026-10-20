@@ -52,6 +52,57 @@ It resamples releases instead of single contracts because strikes on the same re
   1–2 point gaps where nearly every contract settled the same way, and they shouldn't be read as
   real mispricing.
 
+## Is Kalshi getting more accurate?
+
+No overall change from 2021 to 2026. One event type improved and one got worse, and those two
+changes come mostly from how hard the questions were.
+
+![Brier over time](charts/brier_over_time.png)
+
+Prices 1 day before release, grouped by the year of the release. Two things change over the
+years besides skill, and both are handled:
+
+- **Event-type mix.** Fed and Jobs markets start in 2023, and Fed is far easier to call. So
+  trends are measured *within* each event type (each type's average level is removed), and the
+  "vs. usual" columns compare each contract with its own type's all-years average.
+- **Question difficulty.** A perfectly priced 50% contract still scores 0.25. The *pricing
+  error* column subtracts the Brier score the prices themselves predicted, p(1−p). It averages
+  zero for a well-calibrated market however hard the questions are, and positive means prices
+  were worse than their confidence implied.
+
+All event types together (95% intervals resample whole releases):
+
+| Year | Contracts | Releases | Close calls (10–90%) | Brier | Brier vs. usual for type | Pricing error vs. usual |
+|---|---|---|---|---|---|---|
+| 2021 (Jul–Dec) | 12 | 8 | 83% | 0.137 (0.069–0.252) | +0.062 (−0.008 to +0.180) | −0.035 (−0.082 to +0.059) |
+| 2022 | 127 | 16 | 46% | 0.115 (0.087–0.150) | +0.042 (+0.013 to +0.076) | +0.017 (−0.010 to +0.049) |
+| 2023 | 214 | 31 | 33% | 0.050 (0.034–0.069) | −0.042 (−0.060 to −0.023) | −0.027 (−0.044 to −0.009) |
+| 2024 | 243 | 36 | 39% | 0.098 (0.072–0.123) | −0.006 (−0.029 to +0.019) | −0.001 (−0.023 to +0.023) |
+| 2025 | 245 | 36 | 35% | 0.086 (0.061–0.112) | −0.015 (−0.039 to +0.009) | −0.004 (−0.025 to +0.018) |
+| 2026 | 321 | 29 | 52% | 0.138 (0.086–0.186) | +0.025 (−0.009 to +0.062) | +0.017 (−0.014 to +0.051) |
+
+Change per year, within event type (negative = improving):
+
+| | Brier | Pricing error |
+|---|---|---|
+| All types | +0.004 (−0.007 to +0.015), noise | +0.006 (−0.003 to +0.015), noise |
+| CPI | **−0.015 (−0.023 to −0.007)** | −0.004 (−0.011 to +0.005), noise |
+| Jobs | **+0.051 (+0.024 to +0.076)** | **+0.028 (+0.001 to +0.053)**, borderline |
+| Fed | −0.000, noise | −0.000, noise |
+| GDP | +0.011, noise | +0.015, noise |
+
+- **No overall trend.** After controlling for event type, neither the Brier score nor the
+  pricing error moved by more than noise.
+- **CPI scores improved, but the questions got easier.** Close calls fell from 46% of CPI
+  contracts in 2022 to 22% in 2026. After allowing for that, CPI pricing shows no trend.
+- **Jobs got worse, about half from harder questions.** 84% of 2026 jobs contracts were close
+  calls. The rest is a borderline decline in pricing, driven by 2026 (10 releases). Ten trends
+  were tested, so one borderline result can happen by chance. Worth watching, not yet a finding.
+- **Fed prices are a bit underconfident every year:** outcomes were more certain than prices.
+- **Small samples:** 2021 is 12 contracts and GDP has 3–4 releases a year, so their intervals
+  are wide (and for GDP, probably still too narrow). The calibration gap (in `yearly.csv`) is
+  pushed up by noise in small samples, which is why 2021 shows 24 points. It isn't used for the trend.
+
 ## Method
 
 1. **Data:** every settled market in four Kalshi series (`KXCPI`, `KXPAYROLLS`, `KXFEDDECISION`,
@@ -64,6 +115,8 @@ It resamples releases instead of single contracts because strikes on the same re
 4. **Brier score:** mean of (price − outcome)², overall and by event type.
 5. **Confidence intervals:** 95% bootstrap interval on each bucket's hit rate, resampling whole
    releases (`event_ticker`) 1,000 times. A gap is significant when the average price falls outside it.
+6. **Over time:** year of each release (`close_time`), 1 day before close. Trends are fixed-effects
+   slopes within event type, with release-level bootstrap intervals; see the section above.
 
 **Caveats:** 58% of contracts were priced below 10% or above 90% the day before, and those easy
 calls make the overall Brier score look better. Jobs and Fed data start in 2023.
@@ -91,6 +144,7 @@ streamlit run app.py    # dashboard
 | `pull_all.py` | Pulls all settled markets and daily price history |
 | `build_db.py` | Loads CSVs into DuckDB and runs SQL checks |
 | `analysis.py` | Calibration tables, Brier scores and charts |
+| `yearly.csv`, `yearly_trend.csv` | Yearly results and trends written by `analysis.py`, read by the dashboard |
 | `app.py` | Streamlit dashboard |
 
 Built with AI assistance (Claude) for code generation; analysis design and interpretation are my own.

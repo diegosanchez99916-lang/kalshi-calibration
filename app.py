@@ -7,7 +7,9 @@ from pathlib import Path
 st.set_page_config(page_title="Kalshi Calibration", page_icon="◐", layout="wide")
 
 INK, MUTED, LINE, PAPER, RED = "#14171A", "#6A7178", "#D6D9D4", "#F3F4F1", "#C8102E"
-TYPE_COLORS = {"CPI": "#1B2A41", "Jobs": RED, "GDP": "#8A6D3B", "Fed": "#4F7A6A"}
+# Sister series share a hue: CPI blues, jobs reds, Fed greens
+TYPE_COLORS = {"CPI": "#1B2A41", "CPI YoY": "#5E7BA3", "Jobs": RED, "Unemployment": "#E58A6E",
+               "Fed decision": "#4F7A6A", "Fed rate": "#93B5A4", "GDP": "#8A6D3B"}
 FONT = "Archivo"
 VFONT = "Archivo, Helvetica Neue, Arial, sans-serif"
 
@@ -56,8 +58,8 @@ def load(name="snapshots.csv"):
 
 
 def bootstrap_ci(df, n_boot=1000, seed=0):
-    # Resample whole releases, since strikes on the same release move together
-    r = df.groupby("event_ticker")["outcome"].agg(["sum", "size"])
+    # Resample whole releases (a report and its date), since strikes on the same report move together
+    r = df.groupby("release")["outcome"].agg(["sum", "size"])
     idx = np.random.default_rng(seed).integers(0, len(r), size=(n_boot, len(r)))
     rates = r["sum"].values[idx].sum(axis=1) / r["size"].values[idx].sum(axis=1)
     return np.percentile(rates, [2.5, 97.5])
@@ -159,9 +161,12 @@ st.markdown(f"<table class='t'><tr><th>Price bucket</th><th>Contracts</th><th>Av
             unsafe_allow_html=True)
 
 st.markdown('<div style="height:4rem"></div><h2 class="sec">By event type</h2>'
-            '<p class="sub">Fed decisions are signaled in advance, so their prices sit almost on the '
-            'line. Jobs reports are the hardest to call, even a day out.</p>', unsafe_allow_html=True)
-cols = st.columns(len(types), gap="medium")
+            '<p class="sub">The Fed signals its moves in advance, so both Fed series sit almost on the '
+            'line. Payrolls are the hardest to call, even a day out, while the unemployment rate from '
+            'the same jobs report is far easier. Year-over-year CPI is easier than the monthly change, '
+            'since eleven of its twelve months are already known.</p>', unsafe_allow_html=True)
+# Four small charts per row
+cols = [c for _ in range(0, len(types), 4) for c in st.columns(4, gap="medium")]
 for col, t in zip(cols, types):
     sub = df[(df["days"] == days) & (df["event_type"] == t)]
     with col:
@@ -184,36 +189,46 @@ st.markdown(f"<table class='t'><tr><th>Event type</th><th>30 days out</th><th>7 
 yearly, trend = load("yearly.csv"), load("yearly_trend.csv").set_index(["metric", "event_type"])
 tr = lambda m, t: trend.loc[(m, t)]
 fmt_slope = lambda r: f"{r.slope:+.3f} a year (95% range {r.slope_lo:+.3f} to {r.slope_hi:+.3f})"
+cell = lambda y, t: yearly[(yearly["year"] == y) & (yearly["event_type"] == t)].iloc[0]
 st.markdown(f"""<div style="height:3rem"></div><h2 class="sec">Is Kalshi getting more accurate?</h2>
 <p class="sub">Prices 1 day before release, grouped by the year of the release. Two things change over
-time besides skill. Fed and Jobs markets start in 2023, and Fed is far easier to call, so every trend
-here compares years within the same event type. And the share of close calls changes: a perfectly
-priced 50% contract still scores 0.25, so the second view subtracts the Brier score the prices
-themselves predicted. Zero there means prices were exactly as good as they claimed.</p>
+time besides skill. Series start in different years and some, like the Fed, are far easier to call,
+so every trend here compares years within the same event type. And the share of close calls changes:
+a perfectly priced 50% contract still scores 0.25, so the second view subtracts the Brier score the
+prices themselves predicted. Zero there means prices were exactly as good as they claimed; above zero,
+prices were overconfident; below, underconfident. The chart follows the event types picked above.</p>
 <p class="lede" style="font-size:1.08rem;margin-bottom:1.6rem"><b>No overall change.</b> Within each
 event type, the Brier score moved {fmt_slope(tr("brier", "All"))}, which is within noise.
 <b>CPI</b> scores improved ({tr("brier", "CPI").slope:+.3f} a year), but mostly because fewer CPI
 contracts were close calls. After allowing for difficulty, its trend is {tr("excess", "CPI").slope:+.3f}
-a year, within noise. <b>Jobs</b> got worse ({tr("brier", "Jobs").slope:+.3f} a year). About half of
-that is harder questions (84% of 2026 jobs contracts were close calls), and the rest is a borderline
-decline in pricing, {fmt_slope(tr("excess", "Jobs"))}, driven by 2026. Ten trends were tested here, so
-one borderline result could be chance. 2021 covers only July to December, with 12 contracts.</p>
+a year, within noise. <b>Payrolls</b> got worse ({tr("brier", "Jobs").slope:+.3f} a year). About half
+of that is harder questions ({cell(2026, "Jobs").close_calls:.0%} of 2026 payroll contracts were close
+calls), and the rest is a borderline decline in pricing, {fmt_slope(tr("excess", "Jobs"))}, driven by
+2026. <b>Unemployment</b>, settled by the same jobs report, went the other way: its Brier score
+improved {tr("brier", "Unemployment").slope:+.3f} a year, and its prices went from overconfident in 2023
+to slightly underconfident. The Fed rate's pricing error also moved
+({tr("excess", "Fed rate").slope:+.3f} a year), but that is a tiny shift toward zero on a market that
+is almost always right. Sixteen trends were tested, so about one would be flagged by chance. 2021
+covers only July to December, with {cell(2021, "All").contracts} contracts.</p>
 """, unsafe_allow_html=True)
 
 view = st.segmented_control("Measure", ["Brier score", "Pricing error after difficulty"],
                             default="Brier score") or "Brier score"
 m = "brier" if view == "Brier score" else "excess"
 # Cells with under 3 releases are too thin to resample into a meaningful range
-cells = yearly[(yearly["event_type"] != "All") & (yearly["releases"] >= 3)].copy()
-cells["x"] = cells["year"] + cells["event_type"].map({t: (k - 1.5) * 0.08 for k, t in enumerate(types)})
+cells = yearly[yearly["event_type"].isin(picked) & (yearly["releases"] >= 3)].copy()
+cells["x"] = cells["year"] + cells["event_type"].map({t: (k - (len(types) - 1) / 2) * 0.06
+                                                         for k, t in enumerate(types)})
 style = dict(grid=False, domainColor=LINE, tickColor=LINE, labelColor=MUTED, titleColor=MUTED,
              labelFont=VFONT, titleFont=VFONT, titleFontWeight=400)
 x = alt.X("x:Q", scale=alt.Scale(domain=[2020.7, 2026.3]), title=None,
           axis=alt.Axis(format="d", values=sorted(cells["year"].unique()), **style))
 y = alt.Y(f"{m}:Q", title=view + (" (lower is better)" if m == "brier" else " (0 = as claimed)"),
           axis=alt.Axis(**style))
+# Solid circle swatches, so the legend isn't faded like the range bars
 color = alt.Color("event_type:N", scale=alt.Scale(domain=list(TYPE_COLORS), range=list(TYPE_COLORS.values())),
-                  legend=alt.Legend(title=None, orient="top", labelFont=VFONT, labelColor=MUTED))
+                  legend=alt.Legend(title=None, orient="top", labelFont=VFONT, labelColor=MUTED,
+                                    symbolType="circle", symbolOpacity=1))
 tip = [alt.Tooltip("event_type:N", title="Event type"), alt.Tooltip("year:O", title="Year"),
        alt.Tooltip("contracts:Q", title="Contracts"), alt.Tooltip("releases:Q", title="Releases"),
        alt.Tooltip(f"{m}:Q", title=view, format=".3f"),
@@ -244,7 +259,8 @@ st.markdown(f"<table class='t'><tr><th>Year</th><th>Contracts</th><th>Releases</
             f"<th>Calibration gap (pts)</th></tr>{rows}</table>", unsafe_allow_html=True)
 
 st.markdown("""
-<div class="foot">Method: every settled Kalshi market in the CPI, jobs, Fed decision and GDP series,
+<div class="foot">Method: every settled Kalshi market in seven economics series: CPI (monthly and
+year-over-year), jobs (payrolls and unemployment), Fed (decision and rate) and GDP,
 pulled from the public Kalshi API. Price is the midpoint of the best bid and ask on the last daily
 snapshot before the cutoff, or the last trade when the spread was wider than 20 cents. Built by
 Diego Sanchez with Python, DuckDB and Streamlit.

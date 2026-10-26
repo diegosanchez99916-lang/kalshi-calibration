@@ -39,14 +39,21 @@ snap["sq_err"] = (snap["price"] - snap["outcome"]) ** 2
 bins = np.linspace(0, 1, 11)
 labels = [f"{i*10}-{i*10+10}%" for i in range(10)]
 snap["bucket"] = pd.cut(snap["price"], bins, labels=labels, include_lowest=True)
-snap["year"] = pd.to_datetime(snap["close_time"], utc=True).dt.year
+close = pd.to_datetime(snap["close_time"], utc=True)
+snap["year"] = close.dt.year
+# Sister series settle on the same report (CPI and CPI YoY on the CPI release, Jobs and
+# Unemployment on the jobs report, both Fed series on the meeting), so a "release" is the
+# report plus its date. Resampling releases keeps those correlated contracts together.
+REPORT = {"CPI": "CPI", "CPI YoY": "CPI", "Jobs": "Jobs", "Unemployment": "Jobs",
+          "Fed decision": "Fed", "Fed rate": "Fed", "GDP": "GDP"}
+snap["release"] = snap["event_type"].map(REPORT) + " " + close.dt.strftime("%Y-%m-%d")
 snap = snap.sort_values(["event_type", "ticker", "days"]).reset_index(drop=True)
 snap.to_csv(HERE / "snapshots.csv", index=False)
 
 def bootstrap_ci(df, n_boot=1000, seed=0):
     """95% interval for a hit rate. Strikes on the same release move together, so resample
-    whole releases (event_ticker) with replacement n_boot times, not single contracts."""
-    r = df.groupby("event_ticker")["outcome"].agg(["sum", "size"])
+    whole releases with replacement n_boot times, not single contracts."""
+    r = df.groupby("release")["outcome"].agg(["sum", "size"])
     idx = np.random.default_rng(seed).integers(0, len(r), size=(n_boot, len(r)))
     rates = r["sum"].values[idx].sum(axis=1) / r["size"].values[idx].sum(axis=1)
     return np.percentile(rates, [2.5, 97.5])
@@ -146,10 +153,10 @@ for col in ["sq_err", "excess"]:
 
 def release_bootstrap(df, n_boot=1000, seed=0):
     """Yearly metrics with 95% intervals from resampling whole releases."""
-    r = df.groupby("event_ticker")
+    r = df.groupby("release")
     n = r.size().values
     sums = {c: r[c].sum().values for c in ["sq_err", "excess", "adj_sq_err", "adj_excess"]}
-    gaps = df.pivot_table(index="event_ticker", columns="code", values="gap", aggfunc="sum",
+    gaps = df.pivot_table(index="release", columns="code", values="gap", aggfunc="sum",
                           fill_value=0).values
     idx = np.random.default_rng(seed).integers(0, len(n), size=(n_boot, len(n)))
     out = {"contracts": n.sum(), "releases": len(n), "close_calls": df["close_call"].mean()}
@@ -168,14 +175,16 @@ def release_bootstrap(df, n_boot=1000, seed=0):
 def within_type_trend(df, col, n_boot=1000, seed=0):
     """Change in col per year with each event type's average level removed (a fixed-effects
     slope), with a 95% interval from resampling releases."""
-    r = df.groupby("event_ticker").agg(t=("event_type", "first"), yr=("year", "first"),
-                                       n=(col, "size"), s=(col, "sum"))
-    idx = np.random.default_rng(seed).integers(0, len(r), size=(n_boot, len(r)))
+    # One row per event type within each release; a release can cover two sister series
+    r = df.groupby(["release", "event_type"]).agg(yr=("year", "first"), n=(col, "size"),
+                                                  s=(col, "sum")).reset_index()
+    rel, k = pd.factorize(r["release"])[0], r["release"].nunique()
+    idx = np.random.default_rng(seed).integers(0, k, size=(n_boot, k))
     # w[0] is the real data, w[1:] counts how often each release was drawn in each resample
-    w = np.vstack([np.ones(len(r)), [np.bincount(i, minlength=len(r)) for i in idx]])
+    w = np.vstack([np.ones(k), [np.bincount(i, minlength=k) for i in idx]])[:, rel]
     num = den = 0
-    for t in r["t"].unique():
-        m = (r["t"] == t).values
+    for t in r["event_type"].unique():
+        m = (r["event_type"] == t).values
         wt, n, s, yr = w[:, m], r["n"].values[m], r["s"].values[m], r["yr"].values[m]
         xbar = (wt * n * yr).sum(1) / (wt * n).sum(1)
         ybar = (wt * s).sum(1) / (wt * n).sum(1)
@@ -196,15 +205,16 @@ trend = pd.DataFrame([{"metric": m, "event_type": t, **within_type_trend(g, col)
 trend.to_csv(HERE / "yearly_trend.csv", index=False)
 
 # Chart 5: Brier and difficulty-adjusted pricing error by year, within each event type
-years = sorted(one["year"].unique())
+years, types = sorted(one["year"].unique()), sorted(one["event_type"].unique())
 ticks = [f"{y}\n(Jul-Dec)" if y == 2021 else str(y) for y in years]
 fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharex=True)
 for ax, m, title in [(axes[0], "brier", "Brier score (lower is better)"),
                      (axes[1], "excess", "Pricing error after allowing for difficulty\n(0 = prices as good as they claimed)")]:
     # Skip cells with under 3 releases: too few to resample into a meaningful interval
     cells = yearly[(yearly["event_type"] != "All") & (yearly["releases"] >= 3)]
-    for k, (t, g) in enumerate(cells.groupby("event_type")):
-        ax.errorbar(g["year"] + (k - 1.5) * 0.08, g[m], capsize=3, elinewidth=1, fmt="o-", label=t,
+    offset = {t: (k - (len(types) - 1) / 2) * 0.06 for k, t in enumerate(types)}
+    for t, g in cells.groupby("event_type"):
+        ax.errorbar(g["year"] + offset[t], g[m], capsize=3, elinewidth=1, fmt="o-", label=t,
                     yerr=[g[m] - g[m + "_lo"], g[m + "_hi"] - g[m]])
     ax.set_title(title)
     ax.set_xticks(years, ticks)
@@ -232,7 +242,9 @@ print(adj.drop(columns="type").to_string(index=False))
 for t, g in show[show["type"] != "All"].groupby("type"):
     print(f"\n{t}:")
     print(g.drop(columns="type").to_string(index=False))
-print("\nChange per year, within event type (negative = improving):")
+print("\nChange per year, within event type. Brier: negative = improving. Pricing error:"
+      "\npositive = moving toward overconfident, negative = toward underconfident;"
+      "\nwhether that is better depends on which side of 0 the type started:")
 for r in trend.itertuples():
     print(f"  {r.metric:6} {r.event_type:4} {r.slope:+.4f} [{r.slope_lo:+.4f}, {r.slope_hi:+.4f}]  "
           f"{'significant' if r.significant else 'within noise'}")

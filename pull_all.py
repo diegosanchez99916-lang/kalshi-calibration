@@ -5,7 +5,11 @@ from pathlib import Path
 
 BASE = "https://external-api.kalshi.com/trade-api/v2"
 HERE = Path(__file__).parent
-SERIES = {"KXCPI": "CPI", "KXPAYROLLS": "Jobs", "KXFEDDECISION": "Fed", "KXGDP": "GDP"}
+SERIES = {"KXCPI": "CPI", "KXPAYROLLS": "Jobs", "KXFEDDECISION": "Fed decision", "KXGDP": "GDP",
+          "KXFED": "Fed rate", "KXU3": "Unemployment", "KXCPIYOY": "CPI YoY"}
+# The analysis scores each contract by its result, so strikes are kept for reference only. Legacy
+# markets have no strike type. Anything new (e.g. "between", which also uses cap_strike) is flagged.
+KNOWN_STRIKES = {"greater", "less", "between", "custom"}
 throttled = 0
 
 def get(url, params):
@@ -60,11 +64,15 @@ for s, name in SERIES.items():
     frames.append(df)
     print(f"{name}: {len(recent)} recent + {len(older)} historical", flush=True)
 
-cols = ["event_type", "series", "ticker", "event_ticker", "title", "floor_strike",
+cols = ["event_type", "series", "ticker", "event_ticker", "title", "floor_strike", "cap_strike",
         "strike_type", "expiration_value", "result", "open_time", "close_time", "volume_fp"]
 markets = pd.concat(frames).reindex(columns=cols).drop_duplicates("ticker")
 markets = markets[markets["result"].isin(["yes", "no"])].sort_values("close_time")
 markets.to_csv(HERE / "markets.csv", index=False)
+print(markets.groupby(["event_type", markets["strike_type"].fillna("legacy (none)")]).size(), flush=True)
+unknown = set(markets["strike_type"].dropna()) - KNOWN_STRIKES
+if unknown:
+    print("WARNING: unhandled strike types:", unknown, flush=True)
 print(markets.groupby("event_type").agg(markets=("ticker", "count"),
       first=("close_time", "min"), last=("close_time", "max")), flush=True)
 

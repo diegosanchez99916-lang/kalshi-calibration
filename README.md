@@ -166,6 +166,90 @@ depends on exactly where the bucket is drawn and sits next to a window with the 
 With no overall tilt in prices, the evidence fits "noise in one price range" as well as it fits
 "a tradable edge".
 
+## Market quality: what does it cost to trade?
+
+A descriptive look at every daily quote (193,607 market-days, not only the 1/7/30-day
+snapshots): how often there is a real two-sided quote, how wide the spread is, and whether the
+strike ladders make sense. The design was written and committed first, in
+[METHOD_market_quality.md](METHOD_market_quality.md). No significance tests here.
+
+**Cost** = half the bid-ask spread plus the taker fee, 0.07 × P × (1 − P), per contract held to
+settlement. A **tradable quote** has a bid above 0, an ask below $1.00 and a spread of 20¢ or less.
+
+Median all-in cost per contract at 1x fees, by days to close. In brackets: the share of
+market-days with a tradable quote.
+
+| Event type | 30+ days | 14–30 | 7–14 | 3–7 | 1–3 | 0–1 |
+|---|---|---|---|---|---|---|
+| CPI | 3.61¢ (78%) | 2.46¢ (77%) | 2.21¢ (76%) | 2.20¢ (73%) | 2.12¢ (70%) | 2.20¢ (63%) |
+| CPI YoY | 4.21¢ (44%) | 2.33¢ (54%) | 2.20¢ (51%) | 2.04¢ (50%) | 2.20¢ (50%) | 2.39¢ (43%) |
+| Fed decision | 3.10¢ (60%) | 1.10¢ (63%) | 0.80¢ (56%) | 0.80¢ (48%) | 0.74¢ (44%) | 0.74¢ (33%) |
+| Fed rate | 3.42¢ (68%) | 1.10¢ (33%) | 0.80¢ (29%) | 0.80¢ (23%) | 0.80¢ (18%) | 0.93¢ (16%) |
+| GDP | 2.98¢ (91%) | 2.42¢ (88%) | 2.33¢ (88%) | 2.10¢ (88%) | 2.06¢ (84%) | 2.52¢ (74%) |
+| Jobs | 5.12¢ (94%) | 2.76¢ (89%) | 2.56¢ (92%) | 2.25¢ (92%) | 2.21¢ (90%) | 2.16¢ (88%) |
+| Unemployment | 3.86¢ (58%) | 2.74¢ (69%) | 2.47¢ (69%) | 2.39¢ (70%) | 2.24¢ (66%) | 2.27¢ (66%) |
+
+All days pooled:
+
+| Event type | Market-days | Tradable quote | Median spread | Median daily volume | Cost at 0x / 1x / 2x fees |
+|---|---|---|---|---|---|
+| CPI | 28,817 | 76% | 4¢ | 0 | 2.00¢ / 3.08¢ / 4.24¢ |
+| CPI YoY | 24,786 | 48% | 4¢ | 0 | 2.00¢ / 2.93¢ / 3.91¢ |
+| Fed decision | 10,899 | 59% | 2¢ | 121 | 1.00¢ / 2.10¢ / 3.15¢ |
+| Fed rate | 70,568 | 64% | 5¢ | 0 | 2.50¢ / 3.32¢ / 4.26¢ |
+| GDP | 12,607 | 90% | 3¢ | 39 | 1.50¢ / 2.75¢ / 3.91¢ |
+| Jobs | 30,026 | 92% | 6¢ | 0 | 3.00¢ / 4.61¢ / 6.09¢ |
+| Unemployment | 15,904 | 65% | 4¢ | 0 | 2.00¢ / 2.99¢ / 4.02¢ |
+
+![Spread by days to close](charts/spread_by_days_to_close.png)
+
+- **A typical trade costs about 3¢ per contract.** Across all tradable quotes the median spread
+  is 4¢ and the median all-in cost is 3.37¢ at 1x fees (2.00¢ with no fees, 4.48¢ at 2x).
+  69.7% of market-days have a tradable quote.
+- **It gets cheaper and busier close to the release.** The median spread is 5¢ more than 30
+  days out and 2–3¢ inside 30 days. Median daily volume goes from 0 more than 30 days out to
+  1,276 contracts in the last day. But the share of tradable quotes *falls*, from 71% to 58%,
+  likely because more strikes become near-certain and lose one side of the quote.
+- **Fed markets are cheapest near the meeting, Jobs is the most expensive overall.** Inside two
+  weeks, both Fed series cost about 0.8¢, though only 16–29% of Fed rate market-days are
+  tradable then. Jobs has the widest median spread (6¢, and 8¢ more than 30 days out).
+- **Cost peaks at middle prices.** It is 4.72¢ for contracts priced 40–60% and under 2¢ below
+  10% or above 90%. The spread is 6¢ in the middle against 3¢ at the ends, and the fee
+  formula is also largest at 50%.
+- **More volume goes with tighter spreads, and not weakly.** The rank correlation between daily
+  volume and spread is −0.27 to −0.70 depending on event type. Most days have no trades at all:
+  32–72% of tradable market-days had zero volume, so volume terciles could only be formed
+  properly for Fed decision and GDP.
+- **The strike ladders are consistent, and that result is dull.** Across 710 ladders and 2,799
+  adjacent strike pairs with tradable quotes at 1, 7 and 30 days out, 27 pairs (1.0%) had the
+  higher strike's mid above the lower strike's, by a median of 1 point (largest 8). Only one
+  pair crossed in a way you could trade (a Jobs ladder in June 2026: 70¢ bid at the higher
+  strike against a 69¢ ask at the lower), worth 1¢ before fees and −1.97¢ after. Nothing
+  survives fees.
+
+![Ladder violations](charts/ladder_violations.png)
+
+**Caveats:**
+
+- **Daily closing quotes.** Each quote is the day's closing bid and ask. Two strikes' quotes may
+  not have stood at the same instant, and daily data can't show how long a quote lasted.
+- **No depth.** Every cost assumes one contract fills at the quoted price.
+- **Fee schedule.** Today's general taker formula is applied to all years.
+- **Legacy vs. new close times can't really be compared.** Only 23 markets, from July 2021 to
+  January 2022, had the old 7pm-evening-before close; they account for 829 market-days against
+  107,778 for morning closes, and Jobs has none. Fed markets close around 1:55pm on meeting
+  day and fit neither group. "Days to close" therefore isn't the same distance to the release
+  for every market. The per-era numbers are in `market_quality.csv`.
+- **Ladder pairs from different days are excluded.** 859 of 5,610 adjacent pairs had snapshots
+  from different days and were not compared.
+- **The calibration prices are slightly less tidy than the mids.** Using the price column from
+  the calibration analysis (which falls back to the last trade when the spread is wide), 126 of
+  4,751 pairs (2.7%) are out of order.
+
+**Conclusion:** trading these markets costs a median of about 3.4¢ per contract all-in, less
+near the release and at extreme prices, and the strike ladders are internally consistent: of
+2,799 tradable adjacent pairs, one crossed before fees and none after.
+
 ## Is Kalshi getting more accurate?
 
 No overall change from 2021 to 2026. Within single event types, CPI and unemployment scores
@@ -265,6 +349,8 @@ python build_db.py      # load into DuckDB
 python analysis.py      # calibration, Brier scores, charts
 python tradability.py   # would the 70-80% miss survive spread and fees?
 python tradability_checks.py   # robustness checks (needs: pip install statsmodels)
+python market_quality.py   # spreads, volume and cost to trade
+python consistency.py      # strike-ladder consistency
 streamlit run app.py    # dashboard
 ```
 
@@ -280,6 +366,9 @@ streamlit run app.py    # dashboard
 | `yearly.csv`, `yearly_trend.csv` | Yearly results and trends written by `analysis.py`, read by the dashboard |
 | `tradability.py` | Trading simulation net of spread and fees; writes `tradability.csv` |
 | `tradability_checks.py` | Timing, volume and bucket-sensitivity checks; writes `tradability_checks.csv` |
+| `METHOD_market_quality.md` | Design for the market quality analysis, committed before the results |
+| `market_quality.py` | Spread, volume and cost profile from every daily quote; writes `market_quality.csv` |
+| `consistency.py` | Strike-ladder consistency checks; writes `consistency.csv` |
 | `app.py` | Streamlit dashboard |
 
 Built with AI assistance (Claude) for code generation; analysis design and interpretation are my own.

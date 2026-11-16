@@ -71,6 +71,54 @@ payrolls and unemployment, both Fed series), so their contracts are resampled to
   confidence about 1.5 would be flagged by chance alone. The other flag, 40–50% at 7 days out,
   misses its interval by less than a point.
 
+## Can you trade it?
+
+Would the 70–80% miss have survived the bid-ask spread and Kalshi's fees? `tradability.py`
+simulates selling YES at the bid (or buying YES at the ask) one day before release and holding
+to settlement, with today's taker fee of 0.07 × P × (1 − P) per contract.
+
+![Net P&L by bucket](charts/tradability_by_bucket.png)
+
+**In one sentence:** selling YES at the bid on every tradable 70–80% contract made 11.1¢ per
+contract after fees (95% interval 0.9¢ to 21.4¢, 102 contracts from 74 releases), and the same
+rule made 10–12¢ in each half of the data when chosen on the other half, but neither half's
+interval excludes zero, so it's a lead worth watching, not a proven edge.
+
+| Sell YES at the bid, 70–80% bucket | Contracts | Net P&L per contract | 95% interval |
+|---|---|---|---|
+| All years, no fees | 102 | +12.4¢ | +2.3¢ to +22.8¢ |
+| All years, 1x fees | 102 | +11.1¢ | +0.9¢ to +21.4¢ |
+| All years, 2x fees | 102 | +9.7¢ | −0.4¢ to +20.0¢ |
+| Rule picked on 2021–2024, tested on 2025–2026 (1x fees) | 58 | +11.7¢ | −3.4¢ to +26.3¢ |
+| Rule picked on 2025–2026, tested on 2021–2024 (1x fees) | 44 | +10.2¢ | −2.9¢ to +25.9¢ |
+
+- **The spread and fees are small next to the miss.** In this bucket the average bid was 73.2¢,
+  the contracts happened 60.8% of the time, the spread averaged 3.7¢ and the fee 1.4¢.
+- **The out-of-sample test picks the same rule both ways.** Choosing the best bucket and side
+  using only 2021–2024 gives "sell YES at 70–80%", and so does choosing on 2025–2026. The profit
+  is about the same size in the period that wasn't used to choose, but with 44–58 contracts
+  each interval includes zero.
+- **By event type, nothing is clear on its own.** Payrolls made +16.5¢ (33 contracts) and
+  unemployment +14.5¢ (26), both with intervals that include zero. Every other type has under 20
+  contracts in this bucket.
+- **No other bucket is profitable.** Of the 20 bucket-and-side combinations tested, this is the
+  only one with an interval entirely above zero, and about 0.5 would land there by chance.
+- **102 contracts here vs. 104 above:** two of the 104 had a spread over 20¢ and are excluded.
+  Overall 1,387 of the 2,484 contracts had a tradable quote; 1,078 had no bid or no ask (almost
+  all priced under 10% or over 90%) and 19 had a spread over 20¢.
+
+**Caveats:**
+
+- **Daily data.** The quote is each day's closing bid and ask, not a price available at a chosen moment.
+- **No depth.** It assumes one contract at a time fills at the quoted price. Real size would move the price.
+- **In-sample selection.** The 70–80% bucket was chosen after seeing the outcomes. Only the two
+  out-of-sample rows avoid that, and neither excludes zero.
+- **Fee approximation.** The 0.07 formula is today's general schedule, confirmed in Kalshi's
+  October 2026 CFTC filing. Kalshi's fees have changed since 2021, which is why 0x and 2x are
+  shown. I could not confirm from Kalshi's fee schedule whether these series have their own
+  rates. Kalshi also rounds each order's fee up to the next cent, which costs more on one-contract orders.
+- **Multiple buckets.** Twenty combinations were tested at once.
+
 ## Is Kalshi getting more accurate?
 
 No overall change from 2021 to 2026. Within single event types, CPI and unemployment scores
@@ -168,6 +216,7 @@ pip install requests pandas duckdb matplotlib streamlit
 python pull_all.py      # pull markets and daily prices (~25 min)
 python build_db.py      # load into DuckDB
 python analysis.py      # calibration, Brier scores, charts
+python tradability.py   # would the 70-80% miss survive spread and fees?
 streamlit run app.py    # dashboard
 ```
 
@@ -181,6 +230,7 @@ streamlit run app.py    # dashboard
 | `build_db.py` | Loads CSVs into DuckDB and runs SQL checks |
 | `analysis.py` | Calibration tables, Brier scores and charts |
 | `yearly.csv`, `yearly_trend.csv` | Yearly results and trends written by `analysis.py`, read by the dashboard |
+| `tradability.py` | Trading simulation net of spread and fees; writes `tradability.csv` |
 | `app.py` | Streamlit dashboard |
 
 Built with AI assistance (Claude) for code generation; analysis design and interpretation are my own.

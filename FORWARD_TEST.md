@@ -17,7 +17,7 @@ be tested on data the rule has never seen.
 
 - **Freeze timestamp (UTC):** the committer timestamp of the commit that first adds this file.
   It is recorded in the line below by a follow-up commit, together with that commit's hash.
-- **Recorded freeze:** _added in the next commit_
+- **Recorded freeze:** `2026-11-16T22:33:49Z`, commit `2ca2fe74853868b86c00b3a6b975747a7b0b6d9d`
 - The public proof of the date is the push to GitHub, not the local commit time. No data is
   pulled and no test code is written until after that push.
 - **What had been seen at the freeze:** markets in the original seven series that closed on or

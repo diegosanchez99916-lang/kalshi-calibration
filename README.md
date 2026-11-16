@@ -119,6 +119,53 @@ interval excludes zero, so it's a lead worth watching, not a proven edge.
   rates. Kalshi also rounds each order's fee up to the next cent, which costs more on one-contract orders.
 - **Multiple buckets.** Twenty combinations were tested at once.
 
+### Robustness checks
+
+`tradability_checks.py` runs three checks on the 70–80% sell-YES result, all fixed before
+looking at their results. **The result is weaker than it first looked.** It passes the timing
+check, but it loses significance under a volume filter and when the price window shifts by 5 points.
+
+![P&L across sliding price windows](charts/tradability_windows.png)
+
+| Check | Contracts | Net P&L per contract | 95% interval |
+|---|---|---|---|
+| Baseline (70–80%, 1x fees) | 102 | +11.1¢ | +0.9¢ to +21.4¢ |
+| Traded on the snapshot day (volume > 0) | 95 | +10.7¢ | −0.5¢ to +21.0¢ |
+| Cumulative volume ≥ 100 contracts | 102 | +11.1¢ | +0.9¢ to +21.4¢ |
+| Window 65–75 | 99 | +7.4¢ | −3.2¢ to +19.5¢ |
+| Window 67.5–77.5 | 99 | +12.3¢ | +1.9¢ to +22.4¢ |
+| Window 72.5–82.5 | 96 | +9.2¢ | −0.4¢ to +19.2¢ |
+| Window 75–85 | 109 | +4.2¢ | −4.1¢ to +13.2¢ |
+| Fee rounded up, 1-contract orders (2.0¢ fee) | 102 | +10.4¢ | +0.3¢ to +20.8¢ |
+| Fee rounded up, 100-contract orders (1.37¢ fee) | 102 | +11.1¢ | +0.9¢ to +21.4¢ |
+
+- **Timing: no look-ahead found.** The stored bid, ask and last price are each daily candle's
+  closing values, stamped at the candle's end (midnight US Eastern). In the 70–80% sample the
+  quote is 31 to 104 hours older than the market's close (median 32), and none is under 24
+  hours. Daily data can't show how long those quotes stood or how much size they held.
+- **Volume: thin markets aren't the explanation, but the margin is.** These contracts are
+  actively traded (median 2,544 contracts on the snapshot day, 21,558 in total by then).
+  Dropping the 7 with no trades that day barely moves the average, but the interval then
+  includes zero.
+- **Windows: the profit is a narrow bump, not a broad pattern.** Of 37 overlapping 10-point
+  windows, only 67.5–77.5 and 70–80 have an interval entirely above zero. Moving the window 5
+  points either way loses that. One window, 55–65, is significantly *negative* (−14.0¢, −24.2¢
+  to −3.6¢), meaning those contracts happened more often than priced. The 37 windows overlap,
+  so they act like roughly 9 independent tests.
+- **Calibration regression: no overall tilt.** A logistic regression of outcome on the log-odds
+  of the price (statsmodels) gives a slope of 0.99 (0.89 to 1.12) and an intercept of −0.15
+  (−0.45 to 0.16), where slope 1 and intercept 0 mean perfectly calibrated. So prices as a whole
+  are not too extreme. The smooth fit puts a 75¢ contract at 71.8% (65.3% to 78.3%), against the
+  60.8% the bucket actually hit. The 70–80% miss is a local dip that the overall fit doesn't
+  explain, which is what noise in one bucket would also look like.
+- **Fee rounding costs little.** Rounding the fee up to the next cent on one-contract orders
+  takes about 0.6¢; on 100-contract orders it's negligible.
+
+**Where that leaves it:** the 70–80% profit is real in this sample and survives costs, but it
+depends on exactly where the bucket is drawn and sits next to a window with the opposite sign.
+With no overall tilt in prices, the evidence fits "noise in one price range" as well as it fits
+"a tradable edge".
+
 ## Is Kalshi getting more accurate?
 
 No overall change from 2021 to 2026. Within single event types, CPI and unemployment scores
@@ -217,6 +264,7 @@ python pull_all.py      # pull markets and daily prices (~25 min)
 python build_db.py      # load into DuckDB
 python analysis.py      # calibration, Brier scores, charts
 python tradability.py   # would the 70-80% miss survive spread and fees?
+python tradability_checks.py   # robustness checks (needs: pip install statsmodels)
 streamlit run app.py    # dashboard
 ```
 
@@ -231,6 +279,7 @@ streamlit run app.py    # dashboard
 | `analysis.py` | Calibration tables, Brier scores and charts |
 | `yearly.csv`, `yearly_trend.csv` | Yearly results and trends written by `analysis.py`, read by the dashboard |
 | `tradability.py` | Trading simulation net of spread and fees; writes `tradability.csv` |
+| `tradability_checks.py` | Timing, volume and bucket-sensitivity checks; writes `tradability_checks.csv` |
 | `app.py` | Streamlit dashboard |
 
 Built with AI assistance (Claude) for code generation; analysis design and interpretation are my own.

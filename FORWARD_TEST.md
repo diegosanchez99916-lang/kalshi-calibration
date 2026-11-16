@@ -26,8 +26,9 @@ be tested on data the rule has never seen.
   - `67b7c4b4d27cd56efebc0925834ec0904839b318` records the freeze timestamp and hash; no rule change.
   - `fc64ba76e38eeaa14e91ba2d59237fbff0c82509` amendment 1: the orientation rule (primary and
     secondary populations) added to Tests A and B.
-  - Amendment 2: Fed decision moved to the secondary population, and the unclassified rule
-    added. Hash: _added in the next commit_, which makes no rule change.
+  - `d3575b11dfce9f6c396b3b11cda8f072f528bcdf` amendment 2: Fed decision moved to the secondary
+    population, and the unclassified rule added.
+  - One further commit records the hash of amendment 2 in this list; no rule change.
 - **What had been seen at the freeze:** markets in the original seven series that closed on or
   before 2026-10-14 (the last pull, on 2026-10-26). Nothing from any other Kalshi series, and
   nothing from the seven series after that pull, had been downloaded or looked at.

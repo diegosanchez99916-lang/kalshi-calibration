@@ -20,9 +20,14 @@ be tested on data the rule has never seen.
 - **Recorded freeze:** `2026-11-16T22:33:49Z`, commit `2ca2fe74853868b86c00b3a6b975747a7b0b6d9d`
 - The public proof of the date is the push to GitHub, not the local commit time. No data is
   pulled and no test code is written until after that push.
-- **Amended once before the first push,** with no data pulled and no series list queried: the
-  orientation rule (primary and secondary populations) was added to Tests A and B. The freeze
-  timestamp above is unchanged. See the git history of this file.
+- **Amended twice before the first push,** with no data pulled and no series list queried. The
+  freeze timestamp above is unchanged. All commits to this file before the push:
+  - `2ca2fe74853868b86c00b3a6b975747a7b0b6d9d` original freeze.
+  - `67b7c4b4d27cd56efebc0925834ec0904839b318` records the freeze timestamp and hash; no rule change.
+  - `fc64ba76e38eeaa14e91ba2d59237fbff0c82509` amendment 1: the orientation rule (primary and
+    secondary populations) added to Tests A and B.
+  - Amendment 2: Fed decision moved to the secondary population, and the unclassified rule
+    added. Hash: _added in the next commit_, which makes no rule change.
 - **What had been seen at the freeze:** markets in the original seven series that closed on or
   before 2026-10-14 (the last pull, on 2026-10-26). Nothing from any other Kalshi series, and
   nothing from the seven series after that pull, had been downloaded or looked at.
@@ -89,6 +94,9 @@ one-day rows of `snapshots.csv` exactly, and the same 102 contracts and +11.06¢
 - Orientation is read from each market's strike type and title wording, never from prices or
   outcomes. If a series mixes orientations, each market goes to the population its own
   wording puts it in.
+- **Unclassified:** any market whose orientation cannot be classified from its strike type and
+  title wording goes to an "unclassified" list. It is excluded from the primary test and from
+  the secondary result. The list is printed by the scripts and recorded with the results.
 
 The included and excluded series, with the reason for each exclusion and each included series'
 orientation and report family, are appended to this file and committed **before** any price
@@ -120,13 +128,16 @@ and is labeled descriptive.
 `close_time` is after the freeze timestamp. `forward_update.py` appends each qualifying contract
 to `forward_ledger.csv` once, after it settles. Past rows are never rewritten or reordered.
 
-**Populations:** each ledger row is marked primary or secondary.
+**Populations:** each ledger row is marked primary, secondary or unclassified.
 
-- **Primary:** the original seven series, exactly as they entered the in-sample result (their
-  "above X" ladders, plus Fed decision's named outcomes, which were part of that sample), and
-  the "above X" and "at least X" markets of the Test A series.
-- **Secondary:** "below X" and "at most X" markets of the Test A series. Recorded and reported
+- **Primary:** the "above X" ladders of six of the original series (CPI, CPI YoY, Jobs,
+  Unemployment, GDP and Fed rate), and the "above X" and "at least X" markets of the Test A
+  series.
+- **Secondary:** Fed decision, which is a named-outcome series and not a threshold ladder, and
+  the "below X" and "at most X" markets of the Test A series. Recorded and reported
   separately, never pooled into the primary result.
+- **Unclassified:** markets whose orientation cannot be classified, as defined under Test A.
+  Recorded in the ledger, excluded from both results.
 
 **The Test B primary result is pooled across all series in the primary population.** Per-series
 numbers are descriptive only.
@@ -155,6 +166,9 @@ Contracts that qualified for the rule in the original seven series, by year of c
 | Contracts | 1 | 13 | 16 | 14 | 20 | 38 |
 | Releases | 1 | 12 | 14 | 14 | 15 | 18 |
 
+- These counts were made before Fed decision was moved to the secondary population. One of the
+  contracts is a Fed decision contract (2026), so the primary population has 37 contracts from
+  17 releases in 2026. The estimates below are not materially changed.
 - 2023–2025 averaged 16.7 qualifying contracts a year. 2026 is running at about 48.5 a year.
 - A forward-only test on the seven series would therefore reach 100 contracts in roughly **2
   years at the 2026 pace, or about 6 years at the 2023–2025 pace.**

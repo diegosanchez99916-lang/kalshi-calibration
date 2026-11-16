@@ -20,6 +20,9 @@ be tested on data the rule has never seen.
 - **Recorded freeze:** `2026-11-16T22:33:49Z`, commit `2ca2fe74853868b86c00b3a6b975747a7b0b6d9d`
 - The public proof of the date is the push to GitHub, not the local commit time. No data is
   pulled and no test code is written until after that push.
+- **Amended once before the first push,** with no data pulled and no series list queried: the
+  orientation rule (primary and secondary populations) was added to Tests A and B. The freeze
+  timestamp above is unchanged. See the git history of this file.
 - **What had been seen at the freeze:** markets in the original seven series that closed on or
   before 2026-10-14 (the last pull, on 2026-10-26). Nothing from any other Kalshi series, and
   nothing from the seven series after that pull, had been downloaded or looked at.
@@ -69,33 +72,47 @@ one-day rows of `snapshots.csv` exactly, and the same 102 contracts and +11.06¢
 - Not one of the seven series already in this repo (`KXCPI`, `KXCPIYOY`, `KXPAYROLLS`, `KXU3`,
   `KXFEDDECISION`, `KXFED`, `KXGDP`).
 - Its settled markets form a threshold ladder on one number: several strikes per event, each
-  asking whether one published number is above (or at least, or below) a threshold. Series
-  built on named outcomes, mentions, ranges with both a floor and a cap, sports or anything
-  else that is not a threshold on one number are excluded.
+  asking whether one published number is above, at least, below or at most a threshold.
+  Series built on named outcomes, mentions, ranges with both a floor and a cap, sports or
+  anything else that is not a threshold on one number are excluded.
 - At least 20 settled events.
 - Within an included series, only threshold markets are used; any market of another type is
   dropped and counted.
 
+**Orientation (fixed now):**
+
+- **Primary population:** "above X" and "at least X" markets. This matches the in-sample data,
+  where a YES is a bet that the number comes in high.
+- **Secondary population:** "below X" and "at most X" markets. They are included in the data
+  pull and reported as a separate secondary result. They are never pooled into the primary
+  test and no decision rule applies to them.
+- Orientation is read from each market's strike type and title wording, never from prices or
+  outcomes. If a series mixes orientations, each market goes to the population its own
+  wording puts it in.
+
 The included and excluded series, with the reason for each exclusion and each included series'
-report family, are appended to this file and committed **before** any price is pulled.
+orientation and report family, are appended to this file and committed **before** any price
+is pulled.
 
 **Sample:** every settled threshold market in the included series with `close_time` at or
 before the freeze timestamp. Markets that close after the freeze belong to Test B only, so no
-contract is counted in both tests.
+contract is counted in both tests. The primary test pools the primary population only.
 
-**Reported:** per series and pooled: contracts, releases, mean net P&L, 95% interval, average
+**Reported:** per series and pooled, for the primary population, and separately for the
+secondary population: contracts, releases, mean net P&L, 95% interval, average
 price and hit rate in the bucket, mean spread, median daily volume, contracts dropped by the
 quote test, and the share of candidate contracts with zero volume on the snapshot day.
 
-**Decision rule:**
+**Decision rule (primary population, pooled across series):**
 
 - **Supported:** the pooled 95% interval's lower bound is above zero, with at least 60 contracts
   from at least 40 releases.
 - **Too few contracts:** fewer than 60 contracts or fewer than 40 releases, whatever the mean.
 - **Not supported:** enough contracts, and the interval's lower bound is at or below zero.
 
-The test is run once. No other bucket, side or filter is run as a test. A full bucket table may
-be printed for context and is labeled descriptive.
+The test is run once. No other bucket, side or filter is run as a test. Per-series numbers and
+the secondary population are descriptive only. A full bucket table may be printed for context
+and is labeled descriptive.
 
 ## Test B: live forward ledger (ongoing)
 
@@ -103,11 +120,23 @@ be printed for context and is labeled descriptive.
 `close_time` is after the freeze timestamp. `forward_update.py` appends each qualifying contract
 to `forward_ledger.csv` once, after it settles. Past rows are never rewritten or reordered.
 
+**Populations:** each ledger row is marked primary or secondary.
+
+- **Primary:** the original seven series, exactly as they entered the in-sample result (their
+  "above X" ladders, plus Fed decision's named outcomes, which were part of that sample), and
+  the "above X" and "at least X" markets of the Test A series.
+- **Secondary:** "below X" and "at most X" markets of the Test A series. Recorded and reported
+  separately, never pooled into the primary result.
+
+**The Test B primary result is pooled across all series in the primary population.** Per-series
+numbers are descriptive only.
+
 **Scoreboard (`FORWARD_SCOREBOARD.md`):** contracts and releases so far and the running mean P&L.
 A bootstrap interval is shown only from 30 contracts. Until there are 100 contracts the
-scoreboard says "no inference until n >= 100".
+scoreboard says "no inference until n >= 100". These counts are of primary contracts.
 
-**Decision rule:** one evaluation, at the first scoreboard update with at least 100 contracts.
+**Decision rule (primary population, pooled):** one evaluation, at the first scoreboard update
+with at least 100 primary contracts.
 
 - **Supported:** the 95% interval's lower bound is above zero and the contracts come from at
   least 40 releases.
